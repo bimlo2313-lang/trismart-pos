@@ -17,14 +17,17 @@ class MainActivity : FlutterActivity() {
     private var pendingRestore: MethodChannel.Result? = null
     private var restoreTarget: File? = null
     private val restoreRequest = 8102
+    private var pendingExport: MethodChannel.Result? = null
+    private var exportSource: File? = null
+    private val exportRequest = 8103
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "trismart/backup")
             .setMethodCallHandler { call, result ->
                 if (call.method == "openBackup") {
-                    if (pendingRestore != null || pendingBackup != null) {
-                        result.error("BUSY", "Backup/pemulihan sedang berjalan.", null)
+                    if (pendingRestore != null || pendingBackup != null || pendingExport != null) {
+                        result.error("BUSY", "Backup/pemulihan/export sedang berjalan.", null)
                     } else {
                         try {
                             val target = File(requireNotNull(call.argument<String>("path"))).canonicalFile
@@ -41,9 +44,33 @@ class MainActivity : FlutterActivity() {
                             result.error("OPEN_FAILED", "Pemilih backup tidak dapat dibuka.", null)
                         }
                     }
+                } else if (call.method == "saveExport") {
+                    if (pendingExport != null || pendingBackup != null || pendingRestore != null) {
+                        result.error("BUSY", "Backup/pemulihan/export sedang berjalan.", null)
+                    } else {
+                        try {
+                            val source = File(requireNotNull(call.argument<String>("path"))).canonicalFile
+                            val name = requireNotNull(call.argument<String>("filename"))
+                            // Channel hanya boleh mengekspor file temporary export aplikasi.
+                            require(source.isFile && source.path.startsWith(cacheDir.canonicalPath + File.separator))
+                            require(name.endsWith(".zip") && !name.contains('/') && !name.contains("\\"))
+                            pendingExport = result
+                            exportSource = source
+                            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                                type = "application/zip"
+                                putExtra(Intent.EXTRA_TITLE, name)
+                            }
+                            startActivityForResult(intent, exportRequest)
+                        } catch (_: Exception) {
+                            pendingExport = null
+                            exportSource = null
+                            result.error("SAVE_UNAVAILABLE", "Dialog simpan export tidak dapat dibuka.", null)
+                        }
+                    }
                 } else if (call.method != "saveBackup") {
                     result.notImplemented()
-                } else if (pendingBackup != null || pendingRestore != null) {
+                } else if (pendingBackup != null || pendingRestore != null || pendingExport != null) {
                     result.error("BUSY", "Backup sedang berjalan.", null)
                 } else {
                     try {
@@ -73,6 +100,10 @@ class MainActivity : FlutterActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == restoreRequest) {
             receiveRestore(resultCode, data)
+            return
+        }
+        if (requestCode == exportRequest) {
+            receiveExport(resultCode, data)
             return
         }
         if (requestCode != backupRequest) return
@@ -150,6 +181,43 @@ class MainActivity : FlutterActivity() {
                 restoreTarget = null
                 if (copied) result.success(true)
                 else result.error("OPEN_FAILED", "Pilih backup .trismart yang dapat dibaca, maksimal 256 MB.", null)
+            }
+        }
+    }
+
+    private fun receiveExport(resultCode: Int, data: Intent?) {
+        val result = pendingExport ?: return
+        val source = exportSource
+        if (resultCode != Activity.RESULT_OK) {
+            pendingExport = null
+            exportSource = null
+            result.success(false)
+            return
+        }
+        val uri = data?.data
+        if (uri == null || source == null) {
+            pendingExport = null
+            exportSource = null
+            result.error("SAVE_FAILED", "Lokasi export tidak tersedia.", null)
+            return
+        }
+        // Streaming pada worker thread. Dart membersihkan temporary setelah hasil ini.
+        thread(name = "trismart-export-save") {
+            var saved = false
+            try {
+                val output = contentResolver.openOutputStream(uri, "wt")
+                    ?: throw IllegalStateException("Output unavailable")
+                output.use { target -> source.inputStream().use { it.copyTo(target) } }
+                saved = true
+            } catch (_: Exception) {
+                // Dokumen baru yang gagal ditulis tidak dibiarkan sebagai export parsial.
+                try { DocumentsContract.deleteDocument(contentResolver, uri) } catch (_: Exception) { }
+            }
+            runOnUiThread {
+                pendingExport = null
+                exportSource = null
+                if (saved) result.success(true)
+                else result.error("SAVE_FAILED", "File export gagal disimpan.", null)
             }
         }
     }
