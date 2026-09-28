@@ -82,7 +82,7 @@ class ConverterTests(unittest.TestCase):
             with patch.object(converter, '__file__', str(root / 'convert_master.py')), \
                     patch.object(converter, 'read_csv', side_effect=corrupted_read), \
                     contextlib.redirect_stdout(io.StringIO()):
-                result = converter.convert(source, output)
+                result, _ = converter.convert(source, output)
             self.assertNotEqual(result, 0)
             self.assertEqual(output.read_bytes(), b'previous valid output')
             with (root / 'conversion_validation_errors.csv').open(encoding='utf-8', newline='') as stream:

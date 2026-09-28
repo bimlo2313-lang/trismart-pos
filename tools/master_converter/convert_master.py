@@ -17,8 +17,13 @@ import math
 from pathlib import Path
 import re
 import tempfile
+import sys
 
 import xlrd
+
+
+# Type alias for conversion result
+ConversionResult = tuple[int, dict | None]  # (return_code, stats or None)
 
 
 HEADERS = ['Kode', 'Nama', 'QTY', 'UNIT', 'Hrg Sat 1', 'Barcode 1']
@@ -258,13 +263,13 @@ def convert(source, destination):
             for key in ERROR_HEADERS[1:]:
                 print(f'  {key}: {error[key] or "<KOSONG>"}')
         print(f'GAGAL: output sebelumnya tidak diganti. Semua error: {report}')
-        return 1
+        return 1, stats
     # A header-only report explicitly clears stale errors from a previous run.
     with report.open('w', encoding='utf-8', newline='') as stream:
         csv.DictWriter(stream, fieldnames=ERROR_HEADERS).writeheader()
     print('VALID - CSV setara dengan XLS untuk Kode dan Barcode.')
     print(f'Output: {destination.resolve()}')
-    return 0
+    return 0, stats
 
 
 def main():
@@ -273,7 +278,8 @@ def main():
     parser.add_argument('input', nargs='?', type=Path, default=base / '23.xls')
     parser.add_argument('--output', type=Path, default=base / 'master_barang_safe.csv')
     args = parser.parse_args()
-    return convert(args.input, args.output)
+    return_code, _ = convert(args.input, args.output)
+    return return_code
 
 
 if __name__ == '__main__':

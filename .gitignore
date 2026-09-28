@@ -48,3 +48,10 @@ app.*.map.json
 tools/master_converter/*.xls
 tools/master_converter/master_barang_safe.csv
 tools/master_converter/conversion_validation_errors.csv
+
+# PyInstaller build artifacts
+tools/master_converter/build/
+tools/master_converter/dist/
+tools/master_converter/*.spec
+
+devtools_options.yaml
