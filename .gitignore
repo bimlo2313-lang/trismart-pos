@@ -1,4 +1,9 @@
 # Miscellaneous
+# Local Android signing credentials and keystores (all directories).
+key.properties
+*.jks
+*.keystore
+
 *.class
 *.log
 *.pyc

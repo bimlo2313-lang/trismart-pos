@@ -1,4 +1,4 @@
-package com.example.kasir_app
+package com.trismart.pos
 
 import android.app.Activity
 import android.content.Intent

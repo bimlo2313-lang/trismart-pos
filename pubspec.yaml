@@ -118,6 +118,8 @@ flutter_native_splash:
   ios: false
   web: false
   color: "#FFFFFF"
+  # Keep this transparent placeholder at least 4x4: Android density scaling
+  # divides by 4, so a 1x1 source generates invalid 0x0 PNGs.
   image: assets/branding/native_splash_transparent.png
   android_12:
     color: "#FFFFFF"
