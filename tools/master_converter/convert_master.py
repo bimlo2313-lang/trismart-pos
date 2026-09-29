@@ -18,12 +18,13 @@ from pathlib import Path
 import re
 import tempfile
 import sys
+from typing import Optional, Tuple
 
 import xlrd
 
 
 # Type alias for conversion result
-ConversionResult = tuple[int, dict | None]  # (return_code, stats or None)
+ConversionResult = Tuple[int, Optional[dict]]  # (return_code, stats or None)
 
 
 HEADERS = ['Kode', 'Nama', 'QTY', 'UNIT', 'Hrg Sat 1', 'Barcode 1']

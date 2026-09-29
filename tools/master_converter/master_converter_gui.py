@@ -11,6 +11,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 import os
+from typing import Optional
 
 # Import the converter module - resolve relative to this file's location
 BASE_DIR = Path(__file__).resolve().parent
@@ -50,9 +51,9 @@ class MasterConverterGUI:
         self._center_window()
 
         # State
-        self.source_file: Path | None = None
-        self.output_file: Path | None = None
-        self.worker: ConversionWorker | None = None
+        self.source_file: Optional[Path] = None
+        self.output_file: Optional[Path] = None
+        self.worker: Optional[ConversionWorker] = None
         self.result_queue: queue.Queue = queue.Queue()
 
         # UI setup
@@ -191,7 +192,7 @@ class MasterConverterGUI:
             pass
         self.root.after(100, self._poll_queue)
 
-    def _on_conversion_done(self, return_code: int, stats: dict | None):
+    def _on_conversion_done(self, return_code: int, stats: Optional[dict]):
         self.progress.stop()
         self.progress.pack_forget()
         self._enable_widget_tree(self.root)

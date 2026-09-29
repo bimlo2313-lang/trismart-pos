@@ -519,16 +519,22 @@ class DatabaseHelper {
     String keyword, {
     int limit = 50,
     int offset = 0,
+    bool transactionNameSearch = false,
   }) async {
     _validatePagination(limit, offset);
+    if (transactionNameSearch && keyword.trim().length < 2) return [];
     final db = await database;
 
     return await db.query(
       'products',
-      where: _searchWhere,
-      whereArgs: _searchArgs(keyword),
+      where: transactionNameSearch
+          ? "aktif = 1 AND nama LIKE ? ESCAPE '\\'"
+          : _searchWhere,
+      whereArgs: transactionNameSearch
+          ? [_searchArgs(keyword).first]
+          : _searchArgs(keyword),
       orderBy: 'nama ASC, id ASC',
-      limit: limit,
+      limit: transactionNameSearch ? limit.clamp(1, 20) : limit,
       offset: offset,
     );
   }

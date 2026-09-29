@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/material.dart';
@@ -57,13 +58,78 @@ class _TransactionPageState extends State<TransactionPage> {
   final _input = TextEditingController();
   final _inputFocus = FocusNode();
   final _cart = <int, _CartItem>{};
-  final _pendingScans = Queue<String>();
+  final _pendingScans = Queue<({String code, int request})>();
+  Timer? _nameDebounce;
+  int _searchRequest = 0;
+  List<Map<String, dynamic>> _suggestions = [];
+  String? _searchFeedback;
   bool _lookingUp = false;
   bool _confirming = false;
   bool _cameraOpen = false;
 
+  void _resetSearch() {
+    _nameDebounce?.cancel();
+    ++_searchRequest;
+    setState(() {
+      _suggestions = [];
+      _searchFeedback = null;
+    });
+  }
+
+  bool _isName(String value) =>
+      value.length >= 2 && !RegExp(r'^\d+$').hasMatch(value);
+
+  void _inputChanged(String value) {
+    _resetSearch();
+    final keyword = value.trim();
+    if (!_isName(keyword)) return;
+    final request = _searchRequest;
+    _nameDebounce = Timer(const Duration(milliseconds: 300), () async {
+      try {
+        final db = DatabaseHelper.instance;
+        final exact =
+            await db.getProductByBarcode(keyword) ??
+            await db.getProductByKode(keyword);
+        if (!mounted || request != _searchRequest || exact != null) return;
+        await _searchNames(keyword, request);
+      } catch (_) {
+        if (mounted && request == _searchRequest) {
+          setState(() => _searchFeedback = 'Gagal mencari barang. Coba lagi.');
+        }
+      }
+    });
+  }
+
+  Future<void> _searchNames(String keyword, int request) async {
+    if (!mounted || request != _searchRequest || !_isName(keyword)) return;
+    final results = await DatabaseHelper.instance.searchProducts(
+      keyword,
+      limit: 20,
+      transactionNameSearch: true,
+    );
+    if (!mounted || request != _searchRequest) return;
+    setState(() {
+      _suggestions = results;
+      _searchFeedback = results.isEmpty ? 'Barang tidak ditemukan' : null;
+    });
+  }
+
+  Future<void> _selectName(Map<String, dynamic> product) async {
+    if (_confirming || _lookingUp) return;
+    _resetSearch();
+    _input.clear();
+    setState(() => _lookingUp = true);
+    final result = await _lookupAndAdd(product['kode'] as String, byKode: true);
+    if (!mounted) return;
+    setState(() => _lookingUp = false);
+    if (!result.added) _message(result.message);
+    _inputFocus.requestFocus();
+    if (_pendingScans.isNotEmpty) unawaited(_processScans());
+  }
+
   Future<void> _scanCamera() async {
     if (_cameraOpen || _confirming || _lookingUp) return;
+    _resetSearch();
     setState(() => _cameraOpen = true);
     _inputFocus.unfocus();
     try {
@@ -97,6 +163,7 @@ class _TransactionPageState extends State<TransactionPage> {
 
   @override
   void dispose() {
+    _nameDebounce?.cancel();
     _pendingScans.clear();
     _input.dispose();
     _inputFocus.dispose();
@@ -106,11 +173,12 @@ class _TransactionPageState extends State<TransactionPage> {
   void _submit(String value) {
     if (_confirming) return;
     final code = value.trim();
+    _resetSearch();
     _input.clear();
     _inputFocus.requestFocus();
     if (code.isEmpty) return;
     // Simpan setiap submit agar scan cepat tidak hilang selama query berjalan.
-    _pendingScans.add(code);
+    _pendingScans.add((code: code, request: _searchRequest));
     if (!_lookingUp) _processScans();
   }
 
@@ -118,10 +186,15 @@ class _TransactionPageState extends State<TransactionPage> {
     setState(() => _lookingUp = true);
     try {
       while (mounted && _pendingScans.isNotEmpty) {
-        final code = _pendingScans.removeFirst();
-        final result = await _lookupAndAdd(code);
+        final scan = _pendingScans.removeFirst();
+        final result = await _lookupAndAdd(
+          scan.code,
+          nameRequest: scan.request,
+        );
         if (!mounted) return;
-        if (!result.added) _message(result.message);
+        if (!result.added && result.message.isNotEmpty) {
+          _message(result.message);
+        }
         // Jangan menghapus input baru yang sedang diketik/di-scan.
         if (mounted) _inputFocus.requestFocus();
       }
@@ -131,13 +204,23 @@ class _TransactionPageState extends State<TransactionPage> {
   }
 
   // Satu jalur lookup dan perubahan keranjang untuk input manual maupun kamera.
-  Future<({bool added, String message})> _lookupAndAdd(String code) async {
+  Future<({bool added, String message})> _lookupAndAdd(
+    String code, {
+    int? nameRequest,
+    bool byKode = false,
+  }) async {
     try {
       final db = DatabaseHelper.instance;
-      final product =
-          await db.getProductByBarcode(code) ?? await db.getProductByKode(code);
+      final product = byKode
+          ? await db.getProductByKode(code)
+          : await db.getProductByBarcode(code) ??
+                await db.getProductByKode(code);
       if (!mounted) return (added: false, message: 'Transaksi sudah ditutup');
       if (product == null) {
+        if (nameRequest != null && _isName(code)) {
+          await _searchNames(code, nameRequest);
+          return (added: false, message: '');
+        }
         return (added: false, message: 'Barang tidak ditemukan');
       }
       if (product['aktif'] != 1) {
@@ -176,6 +259,7 @@ class _TransactionPageState extends State<TransactionPage> {
   }
 
   Future<void> _clearCart() async {
+    _resetSearch();
     setState(() => _confirming = true);
     try {
       final confirmed = await showDialog<bool>(
@@ -208,6 +292,7 @@ class _TransactionPageState extends State<TransactionPage> {
 
   Future<void> _pay() async {
     if (_cart.isEmpty || _lookingUp || _confirming || _cameraOpen) return;
+    _resetSearch();
     final items = List<TransactionItem>.unmodifiable(
       _cart.values.map((item) => item.snapshot()),
     );
@@ -263,8 +348,9 @@ class _TransactionPageState extends State<TransactionPage> {
                     textInputAction: TextInputAction.done,
                     onEditingComplete: () {},
                     onSubmitted: _submit,
+                    onChanged: _inputChanged,
                     decoration: InputDecoration(
-                      labelText: 'Scan / ketik Barcode atau PLU',
+                      labelText: 'Scan / Barcode / PLU / Nama Barang',
                       border: const OutlineInputBorder(),
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -288,6 +374,41 @@ class _TransactionPageState extends State<TransactionPage> {
                     ),
                   ),
                 ),
+                if (_searchFeedback != null)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(_searchFeedback!),
+                  ),
+                if (_suggestions.isNotEmpty)
+                  Flexible(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 260),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: _suggestions.length,
+                        itemBuilder: (context, index) {
+                          final product = _suggestions[index];
+                          final barcode = (product['barcode'] as String?)
+                              ?.trim();
+                          final unit =
+                              (product['unit'] as String?)?.trim() ?? '';
+                          return ListTile(
+                            key: ValueKey('name-result-${product['id']}'),
+                            title: Text(product['nama'] as String),
+                            subtitle: Text(
+                              'PLU ${product['kode']}'
+                              '${barcode == null || barcode.isEmpty ? '' : ' • Barcode $barcode'}\n'
+                              '${_rupiah(_CartItem._integerPrice(product['harga_jual']))} • Stok ${product['stok']} $unit',
+                            ),
+                            isThreeLine: true,
+                            onTap: _confirming || _lookingUp
+                                ? null
+                                : () => _selectName(product),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
                 SizedBox(
                   height: 2,
                   child: _lookingUp ? const LinearProgressIndicator() : null,

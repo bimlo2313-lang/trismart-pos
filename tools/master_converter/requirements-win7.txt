@@ -1,0 +1,8 @@
+# Build-only toolchain; application dependency stays in requirements.txt.
+-r requirements.txt
+PyInstaller==4.10
+pyinstaller-hooks-contrib==2022.3
+setuptools==59.8.0
+pefile==2023.2.7
+pywin32-ctypes==0.2.2
+altgraph==0.17.4
