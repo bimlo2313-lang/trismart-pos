@@ -59,6 +59,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appLabel"] = "TRISMART POS"
     }
 
     signingConfigs {
@@ -71,6 +72,10 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".dev"
+            manifestPlaceholders["appLabel"] = "TRISMART POS DEV"
+        }
         release {
             signingConfig = signingConfigs.getByName("release")
         }

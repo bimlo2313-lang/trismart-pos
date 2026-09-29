@@ -64,3 +64,6 @@ devtools_options.yaml
 
 # Local release test APKs
 /release-test/
+
+# Local database recovery backups
+/db_backup_hp/
